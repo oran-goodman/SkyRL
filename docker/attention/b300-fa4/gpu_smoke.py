@@ -5,6 +5,7 @@ import importlib
 import importlib.metadata
 import itertools
 import json
+import os
 import subprocess
 import sys
 import time
@@ -113,11 +114,62 @@ def run_case(index, output, oracle):
 
 
 def detect():
+    # SkyRL uses the same setting for its Megatron flash-attention workers.
+    os.environ["NVTE_FUSED_ATTN"] = "0"
     te = importlib.import_module("transformer_engine.pytorch.attention.dot_product_attention.backends")
     megatron = importlib.import_module("megatron.core.transformer.attention")
     if te.flash_attn_func_v4 is None or not megatron.HAVE_FA4:
         raise RuntimeError("Transformer Engine or Megatron did not detect FA4")
-    print(json.dumps({"transformer_engine_fa4": te.flash_attn_func_v4.__module__, "megatron_fa4": megatron.HAVE_FA4}))
+    utils = importlib.import_module("transformer_engine.pytorch.attention.dot_product_attention.utils")
+    selections = []
+    for layout, causal, (heads, kv_heads, dimension) in itertools.product(
+        ("dense", "varlen"), (False, True), ((24, 4, 256), (32, 2, 128))
+    ):
+        mask = (
+            ("padding_causal" if causal else "padding") if layout == "varlen" else ("causal" if causal else "no_mask")
+        )
+        params = utils.AttentionParams(
+            qkv_layout="thd_thd_thd" if layout == "varlen" else "bshd_bshd_bshd",
+            batch_size=2,
+            num_heads=heads,
+            num_gqa_groups=kv_heads,
+            head_dim_qk=dimension,
+            head_dim_v=dimension,
+            max_seqlen_q=256,
+            max_seqlen_kv=256,
+            attn_mask_type=mask,
+            core_attention_bias_shape=None,
+        )
+        selected = utils.get_attention_backend(params)
+        if not selected[0] or not str(selected[1]).startswith("4."):
+            raise RuntimeError(f"Transformer Engine did not select FA4 for {params}: {selected}")
+        selections.append(
+            {"layout": layout, "causal": causal, "heads": [heads, kv_heads, dimension], "version": str(selected[1])}
+        )
+    torch = importlib.import_module("torch")
+    cuda_libraries = sorted(
+        {
+            line.rsplit(maxsplit=1)[-1]
+            for line in Path("/proc/self/maps").read_text().splitlines()
+            if "libcudart.so" in line or "libcuda.so" in line
+        }
+    )
+    print(
+        json.dumps(
+            {
+                "transformer_engine_fa4": te.flash_attn_func_v4.__module__,
+                "megatron_fa4": megatron.HAVE_FA4,
+                "selections": selections,
+                "torch_cuda": torch.version.cuda,
+                "cuda_libraries": cuda_libraries,
+                "versions": {
+                    name: importlib.metadata.version(name)
+                    for name in ("transformer-engine", "megatron-core", "megatron-bridge")
+                },
+            },
+            indent=2,
+        )
+    )
 
 
 def run_subprocess(command, log):
