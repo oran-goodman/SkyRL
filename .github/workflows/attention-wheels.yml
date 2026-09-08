@@ -36,6 +36,7 @@ jobs:
       - name: Exercise pip and uv on Linux
         run: uv run --isolated --no-project docker/attention/b300-fa4/install_smoke.py --artifacts /tmp/attention-release --report /tmp/attention-release/linux-installation.json
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: fa2-fa4-skyrl1
           path: /tmp/attention-release/

@@ -89,11 +89,14 @@ for this qualification.
 
 Prepare the upstream reference in a separate environment inside the owned pod.
 Export the candidate's frozen dependency closure without FA2, FA4, or local
-projects, install it with `--no-deps`, and add the original FA4 input wheel:
+projects. Omit the three Git dependencies, which the attention oracle does not
+use and pip cannot install in hash-checking mode. Install the remaining locked
+artifacts with `--no-deps`, and add the original FA4 input wheel:
 
 ```bash
 uv export --frozen --extra tinker --extra megatron --no-dev --no-emit-local \
   --no-emit-package flash-attn --no-emit-package flash-attn-4 \
+  --no-emit-package megatron-core --no-emit-package megatron-bridge --no-emit-package harbor \
   --output-file /tmp/fa4-reference-requirements.txt
 uv venv --python .venv/bin/python /tmp/fa4-reference
 uv pip install --python /tmp/fa4-reference/bin/python --no-deps \

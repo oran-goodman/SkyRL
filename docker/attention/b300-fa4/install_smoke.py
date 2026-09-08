@@ -28,6 +28,8 @@ def exercise(artifacts, installer, cross_platform):
         python = str(venv / "bin/python")
         env = os.environ.copy()
         env.pop("PYTHONPATH", None)
+        # These wheel-only tests must not inherit SkyRL's source-build settings.
+        env["UV_NO_CONFIG"] = "1"
         if installer == "pip":
             install = [python, "-m", "pip", "install", "--no-deps", "--force-reinstall"]
             uninstall = [python, "-m", "pip", "uninstall", "-y"]
